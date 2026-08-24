@@ -1,0 +1,148 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum DeviceKind {
+  TV
+  SPEAKER
+  LIGHT
+  SCENE
+  SWITCH
+}
+
+enum Weekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum AlarmStepType {
+  TURN_ON_DEVICE
+  PLAY_MUSIC
+  SET_VOLUME
+  SEND_TELEGRAM
+  TRIGGER_SCENE
+  WAIT
+}
+
+enum AlarmExecutionStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model User {
+  id             String   @id @default(cuid())
+  name           String
+  email          String   @unique
+  telegramChatId String?  @unique
+  passwordHash   String
+  role           Role     @default(USER)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  room            Room?
+  devices         Device[]
+  alarmSchedules  AlarmSchedule[]
+  alarmExecutions AlarmExecution[]
+}
+
+model Room {
+  id                   String  @id @default(cuid())
+  userId               String  @unique
+  name                 String
+  homeAssistantAreaId  String?
+  defaultSceneEntityId String?
+  defaultPlaylist      String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Device {
+  id        String     @id @default(cuid())
+  userId    String
+  kind      DeviceKind
+  label     String
+  alias     String
+  entityId  String?
+  sortOrder Int        @default(0)
+  isEnabled Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, alias])
+  @@index([userId, sortOrder])
+}
+
+model AlarmSchedule {
+  id                String    @id @default(cuid())
+  userId            String
+  name              String
+  timeOfDay         String
+  timezone          String    @default("Europe/Stockholm")
+  daysOfWeek        Weekday[]
+  isActive          Boolean   @default(true)
+  lastTriggeredSlot String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  routineSteps AlarmRoutineStep[]
+  executions   AlarmExecution[]
+
+  @@index([userId, isActive])
+}
+
+model AlarmRoutineStep {
+  id        String        @id @default(cuid())
+  alarmId   String
+  sortOrder Int
+  type      AlarmStepType
+  label     String?
+  target    String?
+  value     String?
+  metadata  Json?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  alarm AlarmSchedule @relation(fields: [alarmId], references: [id], onDelete: Cascade)
+
+  @@unique([alarmId, sortOrder])
+}
+
+model AlarmExecution {
+  id           String               @id @default(cuid())
+  alarmId      String
+  userId       String
+  executionKey String               @unique
+  scheduledFor DateTime
+  status       AlarmExecutionStatus @default(PENDING)
+  requestBody  Json?
+  responseBody Json?
+  errorMessage String?
+  triggeredAt  DateTime             @default(now())
+  completedAt  DateTime?
+
+  alarm AlarmSchedule @relation(fields: [alarmId], references: [id], onDelete: Cascade)
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([scheduledFor])
+}

@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+:root {
+  --sky: #9fc3d1;
+  --mist: #d7e4ea;
+  --paper: #eef4f6;
+  --ink: #16312c;
+  --pine: #215544;
+  --brass: #b08a3a;
+  --font-display: var(--font-syne);
+  --font-body: var(--font-karla);
+}
+
+@theme inline {
+  --color-sky: var(--sky);
+  --color-mist: var(--mist);
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-pine: var(--pine);
+  --color-brass: var(--brass);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-karla), "Trebuchet MS", sans-serif;
+}
+
+h1,
+h2,
+.brand {
+  font-family: var(--font-syne), "Trebuchet MS", sans-serif;
+}
