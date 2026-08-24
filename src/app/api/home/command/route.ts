@@ -22,7 +22,14 @@ export async function POST(req: Request) {
   }
 
   const device = await prisma.device.findFirst({
-    where: { id: parsed.data.deviceId, userId: session.user.id, isEnabled: true },
+    where: {
+      id: parsed.data.deviceId,
+      isEnabled: true,
+      room: {
+        members: { some: { userId: session.user.id } },
+      },
+    },
+    include: { room: true },
   });
   if (!device) {
     return NextResponse.json({ error: "Enheten hittades inte" }, { status: 404 });
@@ -30,7 +37,6 @@ export async function POST(req: Request) {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    include: { room: true, devices: { where: { isEnabled: true } } },
   });
   if (!user) {
     return NextResponse.json({ error: "Användaren hittades inte" }, { status: 404 });
@@ -43,14 +49,13 @@ export async function POST(req: Request) {
       email: user.email,
       telegramChatId: user.telegramChatId,
     },
-    room: user.room
-      ? {
-          name: user.room.name,
-          homeAssistantAreaId: user.room.homeAssistantAreaId,
-          defaultSceneEntityId: user.room.defaultSceneEntityId,
-          defaultPlaylist: user.room.defaultPlaylist,
-        }
-      : null,
+    room: {
+      id: device.room.id,
+      name: device.room.name,
+      homeAssistantAreaId: device.room.homeAssistantAreaId,
+      defaultSceneEntityId: device.room.defaultSceneEntityId,
+      defaultPlaylist: device.room.defaultPlaylist,
+    },
     device: {
       id: device.id,
       kind: device.kind,

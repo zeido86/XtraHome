@@ -12,8 +12,18 @@ export async function GET() {
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     include: {
-      room: true,
-      devices: { orderBy: { sortOrder: "asc" } },
+      memberships: {
+        include: {
+          room: {
+            include: {
+              devices: { orderBy: { sortOrder: "asc" } },
+              members: {
+                include: { user: { select: { id: true, name: true } } },
+              },
+            },
+          },
+        },
+      },
       alarmSchedules: {
         orderBy: [{ isActive: "desc" }, { timeOfDay: "asc" }],
         include: { routineSteps: { orderBy: { sortOrder: "asc" } } },
@@ -25,6 +35,16 @@ export async function GET() {
     return NextResponse.json({ error: "Användaren hittades inte" }, { status: 404 });
   }
 
+  const rooms = user.memberships.map((membership) => ({
+    id: membership.room.id,
+    name: membership.room.name,
+    homeAssistantAreaId: membership.room.homeAssistantAreaId,
+    defaultSceneEntityId: membership.room.defaultSceneEntityId,
+    defaultPlaylist: membership.room.defaultPlaylist,
+    devices: membership.room.devices,
+    members: membership.room.members.map((member) => member.user),
+  }));
+
   return NextResponse.json({
     user: {
       id: user.id,
@@ -32,8 +52,14 @@ export async function GET() {
       role: user.role,
       telegramChatId: user.telegramChatId,
     },
-    room: user.room,
-    devices: user.devices,
+    rooms,
+    devices: rooms.flatMap((room) =>
+      room.devices.map((device) => ({
+        ...device,
+        roomId: room.id,
+        roomName: room.name,
+      })),
+    ),
     alarms: user.alarmSchedules,
     integration: { n8nConfigured: isN8nConfigured() },
   });

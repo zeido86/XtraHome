@@ -5,32 +5,61 @@ import { DEVICE_KIND_OPTIONS } from "@/lib/alarm-constants";
 
 type DeviceKind = "TV" | "SPEAKER" | "LIGHT" | "SCENE" | "SWITCH";
 
-type Device = {
+type DeviceDraft = {
   id?: string;
   kind: DeviceKind;
   label: string;
   alias: string;
-  entityId: string | null;
+  entityId: string;
   isEnabled: boolean;
 };
 
-type Room = {
-  name: string;
-  homeAssistantAreaId: string | null;
-  defaultSceneEntityId: string | null;
-  defaultPlaylist: string | null;
-};
-
-type AdminUser = {
+type AppUser = {
   id: string;
   name: string;
   email: string;
   role: "ADMIN" | "USER";
-  room: Room | null;
-  devices: Device[];
 };
 
-function emptyDevice(): Device {
+type RoomListItem = {
+  id: string;
+  name: string;
+  homeAssistantAreaId: string | null;
+  defaultSceneEntityId: string | null;
+  defaultPlaylist: string | null;
+  devices: Array<{
+    id: string;
+    kind: DeviceKind;
+    label: string;
+    alias: string;
+    entityId: string | null;
+    isEnabled: boolean;
+  }>;
+  members: AppUser[];
+};
+
+type EditorState = {
+  id?: string;
+  name: string;
+  homeAssistantAreaId: string;
+  defaultSceneEntityId: string;
+  defaultPlaylist: string;
+  memberUserIds: string[];
+  devices: DeviceDraft[];
+};
+
+function emptyEditor(): EditorState {
+  return {
+    name: "",
+    homeAssistantAreaId: "",
+    defaultSceneEntityId: "",
+    defaultPlaylist: "",
+    memberUserIds: [],
+    devices: [],
+  };
+}
+
+function emptyDevice(): DeviceDraft {
   return {
     kind: "TV",
     label: "",
@@ -41,32 +70,24 @@ function emptyDevice(): Device {
 }
 
 export function AdminRoomsPanel() {
-  const selectedIdRef = useRef("");
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [selectedId, setSelectedId] = useState<string>("");
-  const [room, setRoom] = useState<Room>({
-    name: "",
-    homeAssistantAreaId: "",
-    defaultSceneEntityId: "",
-    defaultPlaylist: "",
-  });
-  const [devices, setDevices] = useState<Device[]>([]);
+  const [rooms, setRooms] = useState<RoomListItem[]>([]);
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [editor, setEditor] = useState<EditorState | null>(null);
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
+  const editingIdRef = useRef<string | undefined>(undefined);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/admin/rooms");
     if (!res.ok) return;
     const data = await res.json();
-    const nextUsers = (data.users ?? []) as AdminUser[];
-    setUsers(nextUsers);
-    const currentId = selectedIdRef.current;
-    const nextId =
-      currentId && nextUsers.some((user) => user.id === currentId)
-        ? currentId
-        : (nextUsers[0]?.id ?? "");
-    if (nextId) {
-      applyUser(nextUsers.find((user) => user.id === nextId) ?? nextUsers[0]);
+    const nextRooms = (data.rooms ?? []) as RoomListItem[];
+    setRooms(nextRooms);
+    setUsers(data.users ?? []);
+
+    if (editingIdRef.current) {
+      const current = nextRooms.find((room) => room.id === editingIdRef.current);
+      if (current) openEditor(current);
     }
   }, []);
 
@@ -75,43 +96,69 @@ export function AdminRoomsPanel() {
     void load();
   }, [load]);
 
-  function applyUser(user?: AdminUser) {
-    if (!user) return;
-    selectedIdRef.current = user.id;
-    setSelectedId(user.id);
-    setRoom({
-      name: user.room?.name ?? `${user.name}s rum`,
-      homeAssistantAreaId: user.room?.homeAssistantAreaId ?? "",
-      defaultSceneEntityId: user.room?.defaultSceneEntityId ?? "",
-      defaultPlaylist: user.room?.defaultPlaylist ?? "",
+  function openEditor(room?: RoomListItem) {
+    if (!room) {
+      editingIdRef.current = undefined;
+      setEditor(emptyEditor());
+      setStatus("");
+      return;
+    }
+    editingIdRef.current = room.id;
+    setEditor({
+      id: room.id,
+      name: room.name,
+      homeAssistantAreaId: room.homeAssistantAreaId ?? "",
+      defaultSceneEntityId: room.defaultSceneEntityId ?? "",
+      defaultPlaylist: room.defaultPlaylist ?? "",
+      memberUserIds: room.members.map((member) => member.id),
+      devices: room.devices.map((device) => ({
+        id: device.id,
+        kind: device.kind,
+        label: device.label,
+        alias: device.alias,
+        entityId: device.entityId ?? "",
+        isEnabled: device.isEnabled,
+      })),
     });
-    setDevices(
-      user.devices.length
-        ? user.devices.map((device) => ({
-            ...device,
-            entityId: device.entityId ?? "",
-          }))
-        : [emptyDevice()],
-    );
     setStatus("");
   }
 
+  function toggleMember(userId: string) {
+    setEditor((prev) => {
+      if (!prev) return prev;
+      const exists = prev.memberUserIds.includes(userId);
+      return {
+        ...prev,
+        memberUserIds: exists
+          ? prev.memberUserIds.filter((id) => id !== userId)
+          : [...prev.memberUserIds, userId],
+      };
+    });
+  }
+
   async function save() {
+    if (!editor) return;
     setSaving(true);
     setStatus("");
-    const res = await fetch("/api/home/setup", {
+    const res = await fetch("/api/admin/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        userId: selectedId,
-        room,
-        devices: devices
+        id: editor.id,
+        room: {
+          name: editor.name,
+          homeAssistantAreaId: editor.homeAssistantAreaId,
+          defaultSceneEntityId: editor.defaultSceneEntityId,
+          defaultPlaylist: editor.defaultPlaylist,
+        },
+        memberUserIds: editor.memberUserIds,
+        devices: editor.devices
           .filter((device) => device.label.trim())
-          .map((device, index) => ({
+          .map((device) => ({
             id: device.id,
             kind: device.kind,
             label: device.label,
-            alias: device.alias.trim() || slug(device.label, index),
+            alias: device.alias,
             entityId: device.entityId,
             isEnabled: device.isEnabled,
           })),
@@ -123,142 +170,245 @@ export function AdminRoomsPanel() {
       setStatus(data.error ?? "Kunde inte spara rummet");
       return;
     }
+    editingIdRef.current = data.room?.id;
     setStatus("Rummet är sparat.");
     await load();
   }
 
-  const selected = users.find((user) => user.id === selectedId);
+  async function removeRoom(roomId: string) {
+    if (!window.confirm("Ta bort rummet och alla dess enheter?")) return;
+    const res = await fetch(`/api/admin/rooms/${roomId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json();
+      setStatus(data.error ?? "Kunde inte ta bort rummet");
+      return;
+    }
+    if (editingIdRef.current === roomId) {
+      editingIdRef.current = undefined;
+      setEditor(null);
+    }
+    await load();
+  }
 
   return (
     <section className="bg-[#d7e4ea] px-6 py-16 md:px-12">
-      <h2 className="text-3xl font-bold text-[#16312c]">Rum och enheter</h2>
-      <p className="mt-2 max-w-2xl text-[#215544]">
-        Här knyter du varje persons rum till Home Assistant. Användarna ser bara
-        knapparna och kan lägga larm.
-      </p>
-
-      <div className="mt-8 flex flex-wrap gap-2">
-        {users.map((user) => (
-          <button
-            key={user.id}
-            type="button"
-            onClick={() => applyUser(user)}
-            className={`px-4 py-2 text-sm ${
-              selectedId === user.id
-                ? "bg-[#16312c] text-white"
-                : "bg-white text-[#16312c]"
-            }`}
-          >
-            {user.name}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold text-[#16312c]">Rum</h2>
+          <p className="mt-2 max-w-2xl text-[#215544]">
+            Skapa rum, knyt användare och lägg till så många enheter du vill.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => openEditor()}
+          className="bg-[#16312c] px-5 py-3 font-semibold text-white"
+        >
+          Nytt rum
+        </button>
       </div>
 
-      {selected ? (
-        <div className="mt-8 space-y-6">
-          <p className="text-sm text-[#215544]">
-            Redigerar {selected.name}
-            {selected.role === "ADMIN" ? " (admin)" : ""}.
-          </p>
+      <div className="mt-8 space-y-4">
+        {rooms.length === 0 ? (
+          <p className="text-[#215544]">Inga rum ännu. Skapa det första.</p>
+        ) : (
+          rooms.map((room) => (
+            <article
+              key={room.id}
+              className="border-t border-[#16312c]/20 pt-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-xl font-semibold text-[#16312c]">{room.name}</h3>
+                  <p className="mt-1 text-sm text-[#215544]">
+                    Användare:{" "}
+                    {room.members.length
+                      ? room.members.map((member) => member.name).join(", ")
+                      : "Ingen knuten"}
+                  </p>
+                  <p className="text-sm text-[#215544]">
+                    Enheter:{" "}
+                    {room.devices.length
+                      ? room.devices.map((device) => device.label).join(", ")
+                      : "Inga"}
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => openEditor(room)}
+                    className="text-sm underline"
+                  >
+                    Redigera
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void removeRoom(room.id)}
+                    className="text-sm underline"
+                  >
+                    Ta bort
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))
+        )}
+      </div>
+
+      {editor ? (
+        <div className="mt-12 space-y-6 border-t border-[#16312c]/30 pt-8">
+          <h3 className="text-2xl font-semibold text-[#16312c]">
+            {editor.id ? "Redigera rum" : "Nytt rum"}
+          </h3>
+
           <div className="grid gap-4 md:grid-cols-2">
             <Field
               label="Rumsnamn"
-              value={room.name}
-              onChange={(value) => setRoom((prev) => ({ ...prev, name: value }))}
+              value={editor.name}
+              onChange={(value) => setEditor((prev) => (prev ? { ...prev, name: value } : prev))}
+              placeholder="Olivers rum"
             />
             <Field
               label="Home Assistant area"
-              value={room.homeAssistantAreaId ?? ""}
+              value={editor.homeAssistantAreaId}
               onChange={(value) =>
-                setRoom((prev) => ({ ...prev, homeAssistantAreaId: value }))
+                setEditor((prev) => (prev ? { ...prev, homeAssistantAreaId: value } : prev))
               }
               placeholder="oliver_room"
             />
             <Field
               label="Standardscen"
-              value={room.defaultSceneEntityId ?? ""}
+              value={editor.defaultSceneEntityId}
               onChange={(value) =>
-                setRoom((prev) => ({ ...prev, defaultSceneEntityId: value }))
+                setEditor((prev) => (prev ? { ...prev, defaultSceneEntityId: value } : prev))
               }
-              placeholder="script.oliver_morgon"
             />
             <Field
               label="Standardspellista"
-              value={room.defaultPlaylist ?? ""}
+              value={editor.defaultPlaylist}
               onChange={(value) =>
-                setRoom((prev) => ({ ...prev, defaultPlaylist: value }))
+                setEditor((prev) => (prev ? { ...prev, defaultPlaylist: value } : prev))
               }
             />
           </div>
 
-          <div className="space-y-4">
-            {devices.map((device, index) => (
-              <div
-                key={device.id ?? `new-${index}`}
-                className="grid gap-3 border-t border-[#16312c]/15 pt-4 md:grid-cols-4"
-              >
-                <label className="text-sm text-[#215544]">
-                  Typ
-                  <select
-                    value={device.kind}
-                    onChange={(e) =>
-                      updateDevice(index, { kind: e.target.value as DeviceKind })
-                    }
-                    className="mt-1 w-full border-b border-[#16312c]/30 bg-transparent p-2 outline-none"
+          <div>
+            <p className="mb-3 text-sm font-semibold text-[#16312c]">Knyt användare</p>
+            <div className="flex flex-wrap gap-2">
+              {users.map((user) => {
+                const selected = editor.memberUserIds.includes(user.id);
+                return (
+                  <button
+                    key={user.id}
+                    type="button"
+                    onClick={() => toggleMember(user.id)}
+                    className={`px-3 py-2 text-sm ${
+                      selected ? "bg-[#215544] text-white" : "bg-white text-[#16312c]"
+                    }`}
                   >
-                    {DEVICE_KIND_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <Field
-                  label="Namn i appen"
-                  value={device.label}
-                  onChange={(value) => updateDevice(index, { label: value })}
-                  placeholder="TV"
-                />
-                <Field
-                  label="Alias"
-                  value={device.alias}
-                  onChange={(value) => updateDevice(index, { alias: value })}
-                  placeholder="tv"
-                />
-                <Field
-                  label="HA entity id"
-                  value={device.entityId ?? ""}
-                  onChange={(value) => updateDevice(index, { entityId: value })}
-                  placeholder="media_player.oliver_tv"
-                />
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDevices((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
-                  }
-                  className="justify-self-start text-sm underline"
+                    {user.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-[#16312c]">Enheter</p>
+              <button
+                type="button"
+                onClick={() =>
+                  setEditor((prev) =>
+                    prev ? { ...prev, devices: [...prev.devices, emptyDevice()] } : prev,
+                  )
+                }
+                className="bg-white px-4 py-2 text-sm text-[#16312c]"
+              >
+                Lägg till enhet
+              </button>
+            </div>
+
+            {editor.devices.length === 0 ? (
+              <p className="text-sm text-[#215544]">Inga enheter ännu.</p>
+            ) : (
+              editor.devices.map((device, index) => (
+                <div
+                  key={device.id ?? `new-${index}`}
+                  className="grid gap-3 border-t border-[#16312c]/15 pt-4 md:grid-cols-4"
                 >
-                  Ta bort enhet
-                </button>
-              </div>
-            ))}
+                  <label className="text-sm text-[#215544]">
+                    Typ
+                    <select
+                      value={device.kind}
+                      onChange={(e) =>
+                        updateDevice(index, { kind: e.target.value as DeviceKind })
+                      }
+                      className="mt-1 w-full border-b border-[#16312c]/30 bg-transparent p-2 outline-none"
+                    >
+                      {DEVICE_KIND_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Field
+                    label="Namn i appen"
+                    value={device.label}
+                    onChange={(value) => updateDevice(index, { label: value })}
+                  />
+                  <Field
+                    label="Alias"
+                    value={device.alias}
+                    onChange={(value) => updateDevice(index, { alias: value })}
+                    placeholder="tv"
+                  />
+                  <Field
+                    label="HA entity id"
+                    value={device.entityId}
+                    onChange={(value) => updateDevice(index, { entityId: value })}
+                    placeholder="media_player.oliver_tv"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditor((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              devices: prev.devices.filter((_, itemIndex) => itemIndex !== index),
+                            }
+                          : prev,
+                      )
+                    }
+                    className="justify-self-start text-sm underline"
+                  >
+                    Ta bort enhet
+                  </button>
+                </div>
+              ))
+            )}
           </div>
 
           <div className="flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={() => setDevices((prev) => [...prev, emptyDevice()])}
-              className="bg-white px-4 py-3 text-[#16312c]"
-            >
-              Lägg till enhet
-            </button>
-            <button
-              type="button"
-              disabled={saving}
+              disabled={saving || editor.name.trim().length < 2}
               onClick={() => void save()}
               className="bg-[#16312c] px-5 py-3 font-semibold text-white disabled:opacity-60"
             >
-              {saving ? "Sparar..." : "Spara rum och enheter"}
+              {saving ? "Sparar..." : "Spara rum"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                editingIdRef.current = undefined;
+                setEditor(null);
+              }}
+              className="bg-white px-5 py-3 text-[#16312c]"
+            >
+              Stäng
             </button>
           </div>
           {status ? <p className="text-sm text-[#16312c]">{status}</p> : null}
@@ -267,20 +417,17 @@ export function AdminRoomsPanel() {
     </section>
   );
 
-  function updateDevice(index: number, patch: Partial<Device>) {
-    setDevices((prev) =>
-      prev.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
-    );
+  function updateDevice(index: number, patch: Partial<DeviceDraft>) {
+    setEditor((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        devices: prev.devices.map((item, itemIndex) =>
+          itemIndex === index ? { ...item, ...patch } : item,
+        ),
+      };
+    });
   }
-}
-
-function slug(label: string, index: number) {
-  const value = label
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-  return value.length >= 2 ? value : `enhet-${index + 1}`;
 }
 
 function Field({

@@ -35,7 +35,7 @@ export const alarmScheduleSchema = z.object({
   routineSteps: z.array(alarmStepSchema).min(1).max(12),
 });
 
-export const roomSchema = z.object({
+export const roomFieldsSchema = z.object({
   name: z.string().trim().min(2).max(80),
   homeAssistantAreaId: z.string().trim().max(120).nullable().optional(),
   defaultSceneEntityId: z.string().trim().max(120).nullable().optional(),
@@ -51,8 +51,9 @@ export const deviceSchema = z.object({
   isEnabled: z.boolean().optional().default(true),
 });
 
-export const adminRoomSetupSchema = z.object({
-  userId: z.string().cuid(),
-  room: roomSchema,
-  devices: z.array(deviceSchema).max(12),
+export const roomUpsertSchema = z.object({
+  id: z.string().cuid().optional(),
+  room: roomFieldsSchema,
+  memberUserIds: z.array(z.string().cuid()).max(20),
+  devices: z.array(deviceSchema).max(50),
 });

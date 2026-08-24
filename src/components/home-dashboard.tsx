@@ -6,9 +6,9 @@ import { AdminRoomsPanel } from "@/components/admin-rooms-panel";
 import { LogoutButton } from "@/components/logout-button";
 import {
   USER_ALARM_STEP_TYPE_OPTIONS,
+  WEEKDAY_OPTIONS,
   alarmStepTypeLabel,
   weekdayLabel,
-  WEEKDAY_OPTIONS,
   type AlarmStepTypeValue,
   type WeekdayValue,
 } from "@/lib/alarm-constants";
@@ -22,6 +22,21 @@ type Device = {
   alias: string;
   entityId: string | null;
   isEnabled: boolean;
+  roomId: string;
+  roomName: string;
+};
+
+type Room = {
+  id: string;
+  name: string;
+  devices: Array<{
+    id: string;
+    kind: DeviceKind;
+    label: string;
+    alias: string;
+    entityId: string | null;
+    isEnabled: boolean;
+  }>;
 };
 
 type AlarmStep = {
@@ -50,8 +65,7 @@ const DEFAULT_ALARM = {
   daysOfWeek: ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"] as WeekdayValue[],
   isActive: true,
   routineSteps: [
-    { type: "TURN_ON_DEVICE" as AlarmStepTypeValue, label: "Starta TV", target: "", value: "" },
-    { type: "PLAY_MUSIC" as AlarmStepTypeValue, label: "Spela musik", target: "", value: "" },
+    { type: "TURN_ON_DEVICE" as AlarmStepTypeValue, label: "", target: "", value: "" },
   ],
 };
 
@@ -63,7 +77,7 @@ export function HomeDashboard({
   userId: string;
   role: "ADMIN" | "USER";
 }) {
-  const [roomName, setRoomName] = useState("");
+  const [rooms, setRooms] = useState<Room[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [alarms, setAlarms] = useState<Alarm[]>([]);
   const [n8nConfigured, setN8nConfigured] = useState(false);
@@ -76,19 +90,19 @@ export function HomeDashboard({
     const res = await fetch("/api/home");
     if (!res.ok) return;
     const data = await res.json();
-    setRoomName(data.room?.name ?? `${userName}s rum`);
+    setRooms(data.rooms ?? []);
     setDevices(data.devices ?? []);
     setAlarms(data.alarms ?? []);
     setN8nConfigured(Boolean(data.integration?.n8nConfigured));
-  }, [userName]);
+  }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
-  const primaryDevices = useMemo(
-    () => devices.filter((device) => device.isEnabled).slice(0, 4),
+  const heroDevices = useMemo(
+    () => devices.filter((device) => device.isEnabled).slice(0, 6),
     [devices],
   );
 
@@ -102,10 +116,17 @@ export function HomeDashboard({
     });
     const data = await res.json();
     setBusyId(null);
-    setStatus(res.ok ? `${device.label} skickad till n8n.` : (data.error ?? "Kunde inte styra enheten"));
+    setStatus(
+      res.ok
+        ? `${device.label} i ${device.roomName} skickad till n8n.`
+        : (data.error ?? "Kunde inte styra enheten"),
+    );
   }
 
-  function updateStep(index: number, patch: Partial<(typeof DEFAULT_ALARM)["routineSteps"][number]>) {
+  function updateStep(
+    index: number,
+    patch: Partial<(typeof DEFAULT_ALARM)["routineSteps"][number]>,
+  ) {
     setForm((prev) => ({
       ...prev,
       routineSteps: prev.routineSteps.map((item, itemIndex) =>
@@ -122,7 +143,10 @@ export function HomeDashboard({
         ...form,
         routineSteps: form.routineSteps.map((step) => ({
           ...step,
-          label: step.label || devices.find((device) => device.alias === step.target)?.label || null,
+          label:
+            step.label ||
+            devices.find((device) => device.id === step.target)?.label ||
+            null,
         })),
       }),
     });
@@ -171,10 +195,12 @@ export function HomeDashboard({
           >
             <h1 className="brand text-5xl font-bold text-white md:text-7xl">{userName}</h1>
             <p className="mt-3 max-w-lg text-lg text-white/85">
-              {roomName || "Ditt rum"}. Starta det som finns i rummet, eller lägg ett morgonlarm.
+              {rooms.length
+                ? `Dina rum: ${rooms.map((room) => room.name).join(", ")}.`
+                : "Du är inte knuten till något rum ännu."}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              {primaryDevices.map((device, index) => (
+              {heroDevices.map((device, index) => (
                 <motion.button
                   key={device.id}
                   type="button"
@@ -191,13 +217,7 @@ export function HomeDashboard({
                   className="min-w-36 bg-white/90 px-5 py-4 text-left text-[#16312c] disabled:opacity-60"
                 >
                   <span className="block text-xs uppercase tracking-[0.2em] text-[#215544]">
-                    {device.kind === "TV"
-                      ? "Bild"
-                      : device.kind === "SPEAKER"
-                        ? "Ljud"
-                        : device.kind === "LIGHT"
-                          ? "Ljus"
-                          : "Scen"}
+                    {device.roomName}
                   </span>
                   <span className="mt-1 block text-xl font-semibold">{device.label}</span>
                 </motion.button>
@@ -211,10 +231,48 @@ export function HomeDashboard({
         </div>
       </section>
 
-      <section className="bg-[#eef4f6] px-6 py-16 md:px-12">
+      {rooms.map((room) => (
+        <section key={room.id} className="bg-[#eef4f6] px-6 py-12 md:px-12">
+          <h2 className="text-3xl font-bold text-[#16312c]">{room.name}</h2>
+          <p className="mt-2 text-[#215544]">Enheter i rummet.</p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            {room.devices.filter((device) => device.isEnabled).length === 0 ? (
+              <p className="text-sm text-[#215544]">Inga enheter i det här rummet ännu.</p>
+            ) : (
+              room.devices
+                .filter((device) => device.isEnabled)
+                .map((device) => (
+                  <button
+                    key={device.id}
+                    type="button"
+                    disabled={busyId === device.id}
+                    onClick={() =>
+                      void sendCommand(
+                        {
+                          ...device,
+                          roomId: room.id,
+                          roomName: room.name,
+                        },
+                        device.kind === "SPEAKER" ? "play" : "turn_on",
+                      )
+                    }
+                    className="min-w-32 bg-white px-4 py-3 text-left text-[#16312c] disabled:opacity-60"
+                  >
+                    <span className="block text-xs uppercase tracking-[0.16em] text-[#215544]">
+                      {device.kind}
+                    </span>
+                    <span className="mt-1 block font-semibold">{device.label}</span>
+                  </button>
+                ))
+            )}
+          </div>
+        </section>
+      ))}
+
+      <section className="bg-[#f7fafb] px-6 py-16 md:px-12">
         <h2 className="text-3xl font-bold text-[#16312c]">Veckolarm</h2>
         <p className="mt-2 max-w-2xl text-[#215544]">
-          Välj dagar och tid. Stegen använder enheterna som redan finns i ditt rum.
+          Välj dagar och tid. Stegen använder enheter från rummen du är knuten till.
         </p>
 
         <div className="mt-8 grid gap-10 lg:grid-cols-[0.9fr_1.1fr]">
@@ -258,6 +316,7 @@ export function HomeDashboard({
                 );
               })}
             </div>
+
             {form.routineSteps.map((step, index) => (
               <div key={`${step.type}-${index}`} className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm text-[#215544]">
@@ -265,14 +324,7 @@ export function HomeDashboard({
                   <select
                     value={step.type}
                     onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        routineSteps: prev.routineSteps.map((item, itemIndex) =>
-                          itemIndex === index
-                            ? { ...item, type: e.target.value as AlarmStepTypeValue }
-                            : item,
-                        ),
-                      }))
+                      updateStep(index, { type: e.target.value as AlarmStepTypeValue })
                     }
                     className="mt-1 w-full border-b border-[#16312c]/30 bg-transparent p-2 outline-none"
                   >
@@ -303,8 +355,8 @@ export function HomeDashboard({
                         {devices
                           .filter((device) => device.isEnabled)
                           .map((device) => (
-                            <option key={device.id} value={device.alias}>
-                              {device.label}
+                            <option key={device.id} value={device.id}>
+                              {device.roomName}: {device.label}
                             </option>
                           ))}
                       </select>
@@ -325,7 +377,9 @@ export function HomeDashboard({
                     onClick={() =>
                       setForm((prev) => ({
                         ...prev,
-                        routineSteps: prev.routineSteps.filter((_, itemIndex) => itemIndex !== index),
+                        routineSteps: prev.routineSteps.filter(
+                          (_, itemIndex) => itemIndex !== index,
+                        ),
                       }))
                     }
                     className="text-left text-sm underline"
@@ -335,6 +389,7 @@ export function HomeDashboard({
                 ) : null}
               </div>
             ))}
+
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
@@ -346,7 +401,7 @@ export function HomeDashboard({
                       {
                         type: "TURN_ON_DEVICE",
                         label: "",
-                        target: devices[0]?.alias ?? "",
+                        target: devices[0]?.id ?? "",
                         value: "",
                       },
                     ],
@@ -376,7 +431,8 @@ export function HomeDashboard({
                     <div>
                       <h3 className="text-xl font-semibold">{alarm.name}</h3>
                       <p className="text-sm text-[#215544]">
-                        {alarm.daysOfWeek.map((day) => weekdayLabel(day)).join(" ")} · {alarm.timeOfDay}
+                        {alarm.daysOfWeek.map((day) => weekdayLabel(day)).join(" ")} ·{" "}
+                        {alarm.timeOfDay}
                       </p>
                     </div>
                     <button

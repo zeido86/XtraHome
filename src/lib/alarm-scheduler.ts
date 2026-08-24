@@ -96,10 +96,17 @@ async function getActiveAlarms() {
           name: true,
           email: true,
           telegramChatId: true,
-          room: true,
-          devices: {
-            where: { isEnabled: true },
-            orderBy: { sortOrder: "asc" },
+          memberships: {
+            include: {
+              room: {
+                include: {
+                  devices: {
+                    where: { isEnabled: true },
+                    orderBy: { sortOrder: "asc" },
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -113,6 +120,21 @@ function buildAlarmPayload(
   slot: ReturnType<typeof getAlarmSlot>,
   executionId: string,
 ) {
+  const rooms = alarm.user.memberships.map((membership) => ({
+    id: membership.room.id,
+    name: membership.room.name,
+    homeAssistantAreaId: membership.room.homeAssistantAreaId,
+    defaultSceneEntityId: membership.room.defaultSceneEntityId,
+    defaultPlaylist: membership.room.defaultPlaylist,
+    devices: membership.room.devices.map((device) => ({
+      id: device.id,
+      kind: device.kind,
+      alias: device.alias,
+      label: device.label,
+      entityId: device.entityId,
+    })),
+  }));
+
   return {
     executionId,
     executionKey: `${alarm.id}:${slot.date}:${slot.time}`,
@@ -129,21 +151,14 @@ function buildAlarmPayload(
       email: alarm.user.email,
       telegramChatId: alarm.user.telegramChatId,
     },
-    room: alarm.user.room
-      ? {
-          name: alarm.user.room.name,
-          homeAssistantAreaId: alarm.user.room.homeAssistantAreaId,
-          defaultSceneEntityId: alarm.user.room.defaultSceneEntityId,
-          defaultPlaylist: alarm.user.room.defaultPlaylist,
-        }
-      : null,
-    devices: alarm.user.devices.map((device) => ({
-      id: device.id,
-      kind: device.kind,
-      alias: device.alias,
-      label: device.label,
-      entityId: device.entityId,
-    })),
+    rooms,
+    devices: rooms.flatMap((room) =>
+      room.devices.map((device) => ({
+        ...device,
+        roomId: room.id,
+        roomName: room.name,
+      })),
+    ),
     schedule: {
       date: slot.date,
       time: slot.time,

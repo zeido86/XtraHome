@@ -4,12 +4,13 @@ Personlig hem-dashboard för varje familjemedlem. Separat från XtraCash.
 
 Varje inloggning öppnar **det rummet** som tillhör användaren: TV, musik, ljus och veckolarm. Live-knappar går till `n8n`. Veckolarm sparas i Neon och **n8n läser databasen varje minut**.
 
-## Stack
+## Datamodell
 
-- Next.js (App Router)
-- NextAuth
-- Prisma + PostgreSQL (egen Neon-databas, inte XtraCash)
-- n8n läser förfallna larm från databasen varje minut
+- **Rum** är egna objekt (kan skapas tomma).
+- **Användare** knyts till ett eller flera rum.
+- **Enheter** tillhör ett rum (hur många som helst).
+- Användare ser bara rum de är knutna till.
+- Admins sköter rum, användarkoppling och enheter.
 
 ## Kom igång
 

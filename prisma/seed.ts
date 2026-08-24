@@ -4,20 +4,25 @@ import "dotenv/config";
 
 const prisma = new PrismaClient();
 
-type SeedUser = {
+type SeedRoom = {
   name: string;
-  email: string;
-  role: Role;
-  room: string;
+  userEmail: string;
   devices: Array<{ kind: DeviceKind; label: string; alias: string }>;
 };
 
-const seedUsers: SeedUser[] = [
+const seedUsers = [
+  { name: "Anders", email: "anders@xtrahome.local", role: Role.ADMIN },
+  { name: "Sandra", email: "sandra@xtrahome.local", role: Role.ADMIN },
+  { name: "Alexander", email: "alexander@xtrahome.local", role: Role.USER },
+  { name: "William", email: "william@xtrahome.local", role: Role.USER },
+  { name: "Oliver", email: "oliver@xtrahome.local", role: Role.USER },
+  { name: "Benjamin", email: "benjamin@xtrahome.local", role: Role.USER },
+];
+
+const seedRooms: SeedRoom[] = [
   {
-    name: "Anders",
-    email: "anders@xtrahome.local",
-    role: Role.ADMIN,
-    room: "Vardagsrummet",
+    name: "Vardagsrummet",
+    userEmail: "anders@xtrahome.local",
     devices: [
       { kind: "TV", label: "TV", alias: "tv" },
       { kind: "SPEAKER", label: "Högtalare", alias: "speaker" },
@@ -25,10 +30,8 @@ const seedUsers: SeedUser[] = [
     ],
   },
   {
-    name: "Sandra",
-    email: "sandra@xtrahome.local",
-    role: Role.ADMIN,
-    room: "Köket",
+    name: "Köket",
+    userEmail: "sandra@xtrahome.local",
     devices: [
       { kind: "SPEAKER", label: "Högtalare", alias: "speaker" },
       { kind: "LIGHT", label: "Ljus", alias: "light" },
@@ -36,10 +39,8 @@ const seedUsers: SeedUser[] = [
     ],
   },
   {
-    name: "Alexander",
-    email: "alexander@xtrahome.local",
-    role: Role.USER,
-    room: "Alexanders rum",
+    name: "Alexanders rum",
+    userEmail: "alexander@xtrahome.local",
     devices: [
       { kind: "TV", label: "TV", alias: "tv" },
       { kind: "SPEAKER", label: "Musik", alias: "speaker" },
@@ -47,10 +48,8 @@ const seedUsers: SeedUser[] = [
     ],
   },
   {
-    name: "William",
-    email: "william@xtrahome.local",
-    role: Role.USER,
-    room: "Williams rum",
+    name: "Williams rum",
+    userEmail: "william@xtrahome.local",
     devices: [
       { kind: "TV", label: "TV", alias: "tv" },
       { kind: "SPEAKER", label: "Musik", alias: "speaker" },
@@ -58,10 +57,8 @@ const seedUsers: SeedUser[] = [
     ],
   },
   {
-    name: "Oliver",
-    email: "oliver@xtrahome.local",
-    role: Role.USER,
-    room: "Olivers rum",
+    name: "Olivers rum",
+    userEmail: "oliver@xtrahome.local",
     devices: [
       { kind: "TV", label: "TV", alias: "tv" },
       { kind: "SPEAKER", label: "Musik", alias: "speaker" },
@@ -69,10 +66,8 @@ const seedUsers: SeedUser[] = [
     ],
   },
   {
-    name: "Benjamin",
-    email: "benjamin@xtrahome.local",
-    role: Role.USER,
-    room: "Benjamins rum",
+    name: "Benjamins rum",
+    userEmail: "benjamin@xtrahome.local",
     devices: [
       { kind: "TV", label: "TV", alias: "tv" },
       { kind: "SPEAKER", label: "Musik", alias: "speaker" },
@@ -85,7 +80,7 @@ async function main() {
   const passwordHash = await bcrypt.hash("xtrahome123", 10);
 
   for (const seed of seedUsers) {
-    const user = await prisma.user.upsert({
+    await prisma.user.upsert({
       where: { email: seed.email },
       update: { name: seed.name, role: seed.role },
       create: {
@@ -95,17 +90,41 @@ async function main() {
         passwordHash,
       },
     });
+  }
 
-    await prisma.room.upsert({
-      where: { userId: user.id },
-      update: { name: seed.room },
-      create: { userId: user.id, name: seed.room },
+  for (const seed of seedRooms) {
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { email: seed.userEmail },
     });
+
+    let room = await prisma.room.findFirst({
+      where: {
+        name: seed.name,
+        members: { some: { userId: user.id } },
+      },
+    });
+
+    if (!room) {
+      room = await prisma.room.create({
+        data: {
+          name: seed.name,
+          members: { create: { userId: user.id } },
+        },
+      });
+    } else {
+      await prisma.roomMember.upsert({
+        where: {
+          roomId_userId: { roomId: room.id, userId: user.id },
+        },
+        update: {},
+        create: { roomId: room.id, userId: user.id },
+      });
+    }
 
     for (const [index, device] of seed.devices.entries()) {
       await prisma.device.upsert({
         where: {
-          userId_alias: { userId: user.id, alias: device.alias },
+          roomId_alias: { roomId: room.id, alias: device.alias },
         },
         update: {
           kind: device.kind,
@@ -113,7 +132,7 @@ async function main() {
           sortOrder: index,
         },
         create: {
-          userId: user.id,
+          roomId: room.id,
           kind: device.kind,
           label: device.label,
           alias: device.alias,
