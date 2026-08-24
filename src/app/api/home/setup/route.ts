@@ -1,29 +1,31 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { roomSchema, deviceSchema } from "@/lib/alarm-schema";
-import { z } from "zod";
-
-const bodySchema = z.object({
-  room: roomSchema,
-  devices: z.array(deviceSchema).max(12),
-});
+import { adminRoomSetupSchema } from "@/lib/alarm-schema";
 
 export async function POST(req: Request) {
   const session = await getSession();
-  if (!session?.user) {
+  if (!session?.user || session.user.role !== "ADMIN") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const parsed = bodySchema.safeParse(await req.json());
+  const parsed = adminRoomSetupSchema.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json({ error: "Ogiltiga rumsuppgifter" }, { status: 400 });
   }
 
+  const target = await prisma.user.findUnique({
+    where: { id: parsed.data.userId },
+    select: { id: true },
+  });
+  if (!target) {
+    return NextResponse.json({ error: "Användaren hittades inte" }, { status: 404 });
+  }
+
   const room = await prisma.room.upsert({
-    where: { userId: session.user.id },
+    where: { userId: target.id },
     create: {
-      userId: session.user.id,
+      userId: target.id,
       name: parsed.data.room.name,
       homeAssistantAreaId: clean(parsed.data.room.homeAssistantAreaId),
       defaultSceneEntityId: clean(parsed.data.room.defaultSceneEntityId),
@@ -41,7 +43,7 @@ export async function POST(req: Request) {
   for (const [index, device] of parsed.data.devices.entries()) {
     if (device.id) {
       const updated = await prisma.device.updateMany({
-        where: { id: device.id, userId: session.user.id },
+        where: { id: device.id, userId: target.id },
         data: {
           kind: device.kind,
           label: device.label,
@@ -57,10 +59,10 @@ export async function POST(req: Request) {
 
     const created = await prisma.device.create({
       data: {
-        userId: session.user.id,
+        userId: target.id,
         kind: device.kind,
         label: device.label,
-        alias: device.alias,
+        alias: uniqueAlias(device.alias, keptIds.length),
         entityId: clean(device.entityId),
         isEnabled: device.isEnabled,
         sortOrder: index,
@@ -71,13 +73,13 @@ export async function POST(req: Request) {
 
   await prisma.device.deleteMany({
     where: {
-      userId: session.user.id,
+      userId: target.id,
       id: { notIn: keptIds },
     },
   });
 
   const devices = await prisma.device.findMany({
-    where: { userId: session.user.id },
+    where: { userId: target.id },
     orderBy: { sortOrder: "asc" },
   });
 
@@ -87,4 +89,9 @@ export async function POST(req: Request) {
 function clean(value?: string | null) {
   const trimmed = (value ?? "").trim();
   return trimmed || null;
+}
+
+function uniqueAlias(alias: string, index: number) {
+  const trimmed = alias.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  return trimmed.length >= 2 ? trimmed : `enhet-${index + 1}`;
 }

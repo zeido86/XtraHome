@@ -50,3 +50,9 @@ export const deviceSchema = z.object({
   entityId: z.string().trim().max(120).nullable().optional(),
   isEnabled: z.boolean().optional().default(true),
 });
+
+export const adminRoomSetupSchema = z.object({
+  userId: z.string().cuid(),
+  room: roomSchema,
+  devices: z.array(deviceSchema).max(12),
+});

@@ -2,12 +2,13 @@
 
 import { motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AdminRoomsPanel } from "@/components/admin-rooms-panel";
 import { LogoutButton } from "@/components/logout-button";
 import {
-  ALARM_STEP_TYPE_OPTIONS,
-  WEEKDAY_OPTIONS,
+  USER_ALARM_STEP_TYPE_OPTIONS,
   alarmStepTypeLabel,
   weekdayLabel,
+  WEEKDAY_OPTIONS,
   type AlarmStepTypeValue,
   type WeekdayValue,
 } from "@/lib/alarm-constants";
@@ -21,13 +22,6 @@ type Device = {
   alias: string;
   entityId: string | null;
   isEnabled: boolean;
-};
-
-type Room = {
-  name: string;
-  homeAssistantAreaId: string | null;
-  defaultSceneEntityId: string | null;
-  defaultPlaylist: string | null;
 };
 
 type AlarmStep = {
@@ -63,17 +57,13 @@ const DEFAULT_ALARM = {
 
 export function HomeDashboard({
   userName,
+  role,
 }: {
   userName: string;
   userId: string;
   role: "ADMIN" | "USER";
 }) {
-  const [room, setRoom] = useState<Room>({
-    name: "",
-    homeAssistantAreaId: "",
-    defaultSceneEntityId: "",
-    defaultPlaylist: "",
-  });
+  const [roomName, setRoomName] = useState("");
   const [devices, setDevices] = useState<Device[]>([]);
   const [alarms, setAlarms] = useState<Alarm[]>([]);
   const [n8nConfigured, setN8nConfigured] = useState(false);
@@ -86,12 +76,7 @@ export function HomeDashboard({
     const res = await fetch("/api/home");
     if (!res.ok) return;
     const data = await res.json();
-    setRoom({
-      name: data.room?.name ?? `${userName}s rum`,
-      homeAssistantAreaId: data.room?.homeAssistantAreaId ?? "",
-      defaultSceneEntityId: data.room?.defaultSceneEntityId ?? "",
-      defaultPlaylist: data.room?.defaultPlaylist ?? "",
-    });
+    setRoomName(data.room?.name ?? `${userName}s rum`);
     setDevices(data.devices ?? []);
     setAlarms(data.alarms ?? []);
     setN8nConfigured(Boolean(data.integration?.n8nConfigured));
@@ -120,37 +105,26 @@ export function HomeDashboard({
     setStatus(res.ok ? `${device.label} skickad till n8n.` : (data.error ?? "Kunde inte styra enheten"));
   }
 
-  async function saveSetup() {
-    setStatus("");
-    const res = await fetch("/api/home/setup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        room,
-        devices: devices.map((device) => ({
-          id: device.id,
-          kind: device.kind,
-          label: device.label,
-          alias: device.alias,
-          entityId: device.entityId,
-          isEnabled: device.isEnabled,
-        })),
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setStatus(data.error ?? "Kunde inte spara rummet");
-      return;
-    }
-    setStatus("Rummet är sparat.");
-    await load();
+  function updateStep(index: number, patch: Partial<(typeof DEFAULT_ALARM)["routineSteps"][number]>) {
+    setForm((prev) => ({
+      ...prev,
+      routineSteps: prev.routineSteps.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...patch } : item,
+      ),
+    }));
   }
 
   async function saveAlarm() {
     const res = await fetch(editingId ? `/api/alarms/${editingId}` : "/api/alarms", {
       method: editingId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
+      body: JSON.stringify({
+        ...form,
+        routineSteps: form.routineSteps.map((step) => ({
+          ...step,
+          label: step.label || devices.find((device) => device.alias === step.target)?.label || null,
+        })),
+      }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -197,7 +171,7 @@ export function HomeDashboard({
           >
             <h1 className="brand text-5xl font-bold text-white md:text-7xl">{userName}</h1>
             <p className="mt-3 max-w-lg text-lg text-white/85">
-              {room.name || "Ditt rum"}. Starta TV, spela musik eller lägg morgonlarm.
+              {roomName || "Ditt rum"}. Starta det som finns i rummet, eller lägg ett morgonlarm.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               {primaryDevices.map((device, index) => (
@@ -240,7 +214,7 @@ export function HomeDashboard({
       <section className="bg-[#eef4f6] px-6 py-16 md:px-12">
         <h2 className="text-3xl font-bold text-[#16312c]">Veckolarm</h2>
         <p className="mt-2 max-w-2xl text-[#215544]">
-          Olika tider olika dagar, med flera steg som n8n skickar vidare till rummet.
+          Välj dagar och tid. Stegen använder enheterna som redan finns i ditt rum.
         </p>
 
         <div className="mt-8 grid gap-10 lg:grid-cols-[0.9fr_1.1fr]">
@@ -302,34 +276,94 @@ export function HomeDashboard({
                     }
                     className="mt-1 w-full border-b border-[#16312c]/30 bg-transparent p-2 outline-none"
                   >
-                    {ALARM_STEP_TYPE_OPTIONS.map((option) => (
+                    {USER_ALARM_STEP_TYPE_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
                     ))}
                   </select>
                 </label>
-                <Field
-                  label="Värde / target"
-                  value={step.value ?? step.target ?? ""}
-                  onChange={(value) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      routineSteps: prev.routineSteps.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, value, target: value } : item,
-                      ),
-                    }))
-                  }
-                />
+                {step.type === "WAIT" ? (
+                  <Field
+                    label="Sekunder"
+                    value={step.value ?? ""}
+                    onChange={(value) => updateStep(index, { value })}
+                    placeholder="10"
+                  />
+                ) : (
+                  <>
+                    <label className="text-sm text-[#215544]">
+                      Enhet
+                      <select
+                        value={step.target ?? ""}
+                        onChange={(e) => updateStep(index, { target: e.target.value })}
+                        className="mt-1 w-full border-b border-[#16312c]/30 bg-transparent p-2 outline-none"
+                      >
+                        <option value="">Välj enhet</option>
+                        {devices
+                          .filter((device) => device.isEnabled)
+                          .map((device) => (
+                            <option key={device.id} value={device.alias}>
+                              {device.label}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    {step.type === "SET_VOLUME" ? (
+                      <Field
+                        label="Volym (0-100)"
+                        value={step.value ?? ""}
+                        onChange={(value) => updateStep(index, { value })}
+                        placeholder="25"
+                      />
+                    ) : null}
+                  </>
+                )}
+                {form.routineSteps.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm((prev) => ({
+                        ...prev,
+                        routineSteps: prev.routineSteps.filter((_, itemIndex) => itemIndex !== index),
+                      }))
+                    }
+                    className="text-left text-sm underline"
+                  >
+                    Ta bort steg
+                  </button>
+                ) : null}
               </div>
             ))}
-            <button
-              type="button"
-              onClick={() => void saveAlarm()}
-              className="bg-[#b08a3a] px-5 py-3 font-semibold text-[#16312c]"
-            >
-              {editingId ? "Uppdatera larm" : "Spara larm"}
-            </button>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setForm((prev) => ({
+                    ...prev,
+                    routineSteps: [
+                      ...prev.routineSteps,
+                      {
+                        type: "TURN_ON_DEVICE",
+                        label: "",
+                        target: devices[0]?.alias ?? "",
+                        value: "",
+                      },
+                    ],
+                  }))
+                }
+                className="bg-white px-4 py-3 text-[#16312c]"
+              >
+                Lägg till steg
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveAlarm()}
+                className="bg-[#b08a3a] px-5 py-3 font-semibold text-[#16312c]"
+              >
+                {editingId ? "Uppdatera larm" : "Spara larm"}
+              </button>
+            </div>
           </div>
 
           <div className="space-y-4">
@@ -387,73 +421,7 @@ export function HomeDashboard({
         </div>
       </section>
 
-      <section className="bg-[#d7e4ea] px-6 py-16 md:px-12">
-        <h2 className="text-3xl font-bold text-[#16312c]">Rumskoppling</h2>
-        <p className="mt-2 max-w-2xl text-[#215544]">
-          Här binds ditt konto till Home Assistant. n8n använder alias, inte hårdkodade id:n i knapparna.
-        </p>
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
-          <Field
-            label="Rumsnamn"
-            value={room.name}
-            onChange={(value) => setRoom((prev) => ({ ...prev, name: value }))}
-          />
-          <Field
-            label="Home Assistant area"
-            value={room.homeAssistantAreaId ?? ""}
-            onChange={(value) => setRoom((prev) => ({ ...prev, homeAssistantAreaId: value }))}
-            placeholder="oliver_room"
-          />
-          <Field
-            label="Standardscen"
-            value={room.defaultSceneEntityId ?? ""}
-            onChange={(value) => setRoom((prev) => ({ ...prev, defaultSceneEntityId: value }))}
-            placeholder="script.oliver_morgon"
-          />
-          <Field
-            label="Standardspellista"
-            value={room.defaultPlaylist ?? ""}
-            onChange={(value) => setRoom((prev) => ({ ...prev, defaultPlaylist: value }))}
-          />
-        </div>
-        <div className="mt-8 space-y-4">
-          {devices.map((device, index) => (
-            <div key={device.id} className="grid gap-3 md:grid-cols-[140px_1fr_1fr]">
-              <p className="self-end font-semibold">{device.label}</p>
-              <Field
-                label="Alias"
-                value={device.alias}
-                onChange={(value) =>
-                  setDevices((prev) =>
-                    prev.map((item, itemIndex) =>
-                      itemIndex === index ? { ...item, alias: value } : item,
-                    ),
-                  )
-                }
-              />
-              <Field
-                label="HA entity id"
-                value={device.entityId ?? ""}
-                onChange={(value) =>
-                  setDevices((prev) =>
-                    prev.map((item, itemIndex) =>
-                      itemIndex === index ? { ...item, entityId: value } : item,
-                    ),
-                  )
-                }
-                placeholder="media_player.oliver_tv"
-              />
-            </div>
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={() => void saveSetup()}
-          className="mt-8 bg-[#16312c] px-5 py-3 font-semibold text-white"
-        >
-          Spara rum och enheter
-        </button>
-      </section>
+      {role === "ADMIN" ? <AdminRoomsPanel /> : null}
     </main>
   );
 }
