@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/session";
+import { requireAdmin } from "@/lib/session";
 import { roomUpsertSchema } from "@/lib/alarm-schema";
+import { dbErrorMessage } from "@/lib/db-error";
 
 export async function GET() {
-  const session = await getSession();
-  if (!session?.user || session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const admin = await requireAdmin();
+  if (admin.error) return admin.error;
 
+  try {
   const [rooms, users] = await Promise.all([
     prisma.room.findMany({
       orderBy: { name: "asc" },
@@ -39,18 +39,24 @@ export async function GET() {
     })),
     users,
   });
+  } catch (error) {
+    return NextResponse.json(
+      { error: dbErrorMessage(error, "Kunde inte ladda rum.") },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(req: Request) {
-  const session = await getSession();
-  if (!session?.user || session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const admin = await requireAdmin();
+  if (admin.error) return admin.error;
 
   const parsed = roomUpsertSchema.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json({ error: "Ogiltiga rumsuppgifter" }, { status: 400 });
   }
+
+  try {
 
   const memberIds = [...new Set(parsed.data.memberUserIds)];
   if (memberIds.length) {
@@ -159,6 +165,12 @@ export async function POST(req: Request) {
       members: room.members.map((member) => member.user),
     },
   });
+  } catch (error) {
+    return NextResponse.json(
+      { error: dbErrorMessage(error, "Kunde inte spara rummet.") },
+      { status: 500 },
+    );
+  }
 }
 
 function clean(value?: string | null) {

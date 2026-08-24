@@ -1,18 +1,36 @@
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/session";
 import { HomeDashboard } from "@/components/home-dashboard";
+import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/session";
+
+export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const session = await getSession();
-  if (!session?.user) {
+  if (!session?.user?.id) {
     redirect("/login");
+  }
+
+  let userName = session.user.name ?? "du";
+  let role: "ADMIN" | "USER" = session.user.role ?? "USER";
+  try {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { name: true, role: true },
+    });
+    if (dbUser) {
+      userName = dbUser.name;
+      role = dbUser.role;
+    }
+  } catch {
+    // Fall back to the JWT if the database is unavailable.
   }
 
   return (
     <HomeDashboard
-      userName={session.user.name ?? "du"}
+      userName={userName}
       userId={session.user.id}
-      role={session.user.role}
+      role={role}
     />
   );
 }

@@ -218,7 +218,11 @@ export function AdminRoomsPanel() {
 
       {loadError ? (
         <p className="mt-4 bg-[#16312c] p-3 text-sm text-amber-100">{loadError}</p>
-      ) : null}
+      ) : (
+        <p className="mt-3 text-sm text-[#215544]">
+          {rooms.length} rum · klicka Nytt rum för att skapa fler.
+        </p>
+      )}
 
       <div className="mt-8 space-y-4">
         {rooms.length === 0 ? (

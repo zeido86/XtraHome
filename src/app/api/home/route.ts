@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { isN8nConfigured } from "@/lib/n8n";
+import { dbErrorMessage } from "@/lib/db-error";
 
 export async function GET() {
   const session = await getSession();
@@ -9,6 +10,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  try {
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     include: {
@@ -63,4 +65,10 @@ export async function GET() {
     alarms: user.alarmSchedules,
     integration: { n8nConfigured: isN8nConfigured() },
   });
+  } catch (error) {
+    return NextResponse.json(
+      { error: dbErrorMessage(error, "Kunde inte läsa hemdata.") },
+      { status: 500 },
+    );
+  }
 }

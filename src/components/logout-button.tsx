@@ -7,9 +7,10 @@ export function LogoutButton() {
     <button
       type="button"
       onClick={() => {
-        const origin =
-          typeof window !== "undefined" ? window.location.origin : "";
-        void signOut({ callbackUrl: `${origin}/login` });
+        void (async () => {
+          await signOut({ redirect: false });
+          window.location.replace("/login");
+        })();
       }}
       className="text-sm tracking-wide text-white/80 underline-offset-4 hover:text-white hover:underline"
     >

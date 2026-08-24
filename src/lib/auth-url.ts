@@ -1,5 +1,3 @@
-import type { NextConfig } from "next";
-
 function isValidAuthOrigin(value?: string) {
   if (!value?.trim()) return false;
   const raw = value.trim();
@@ -14,7 +12,7 @@ function isValidAuthOrigin(value?: string) {
   }
 }
 
-function resolveAuthUrl() {
+export function resolveAuthUrl() {
   const explicit = process.env.NEXTAUTH_URL?.trim() ?? "";
   if (isValidAuthOrigin(explicit)) {
     return new URL(
@@ -34,8 +32,6 @@ function resolveAuthUrl() {
   return "http://localhost:3000";
 }
 
-process.env.NEXTAUTH_URL = resolveAuthUrl();
-
-const nextConfig: NextConfig = {};
-
-export default nextConfig;
+export function ensureNextAuthUrl() {
+  process.env.NEXTAUTH_URL = resolveAuthUrl();
+}

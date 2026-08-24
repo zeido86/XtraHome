@@ -46,7 +46,7 @@ export const deviceSchema = z.object({
   id: z.string().cuid().optional(),
   kind: z.enum(["TV", "SPEAKER", "LIGHT", "SCENE", "SWITCH"]),
   label: z.string().trim().min(1).max(80),
-  alias: z.string().trim().min(2).max(40),
+  alias: z.string().trim().max(40).optional(),
   entityId: z.string().trim().max(120).nullable().optional(),
   isEnabled: z.boolean().optional().default(true),
 });
