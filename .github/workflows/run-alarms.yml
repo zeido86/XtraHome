@@ -1,0 +1,40 @@
+name: Run Alarms
+
+on:
+  schedule:
+    - cron: "* * * * *"
+  workflow_dispatch:
+
+jobs:
+  trigger-alarms:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call production alarm cron
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
+        run: |
+          if [ -z "$APP_BASE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "APP_BASE_URL eller CRON_SECRET saknas i GitHub Secrets"
+            exit 1
+          fi
+
+          URL="${APP_BASE_URL%/}/api/cron/run-alarms"
+          CURL_HEADERS=(-H "Authorization: Bearer $CRON_SECRET")
+
+          if [ -n "$VERCEL_BYPASS_TOKEN" ]; then
+            URL="$URL?x-vercel-set-bypass-cookie=true&x-vercel-protection-bypass=$VERCEL_BYPASS_TOKEN"
+            CURL_HEADERS+=(-H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN")
+            echo "Bypass token detected: yes"
+          else
+            echo "Bypass token detected: no"
+          fi
+
+          echo "Calling: $URL"
+          RESPONSE=$(curl --location --silent --show-error \
+            --write-out "\nHTTP_STATUS:%{http_code}\nFINAL_URL:%{url_effective}\n" \
+            "${CURL_HEADERS[@]}" \
+            "$URL")
+          echo "$RESPONSE"
+          echo "$RESPONSE" | grep "HTTP_STATUS:200" > /dev/null

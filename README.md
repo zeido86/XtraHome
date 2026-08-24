@@ -9,7 +9,7 @@ Varje inloggning öppnar **det rummet** som tillhör användaren: TV, musik, lju
 - Next.js (App Router)
 - NextAuth
 - Prisma + PostgreSQL (egen Neon-databas, inte XtraCash)
-- Vercel Cron för veckolarm
+- GitHub Actions för minut-cron (Hobby på Vercel tillåter bara daglig cron)
 
 ## Kom igång
 
@@ -44,7 +44,11 @@ N8N_HOME_WEBHOOK_URL
 N8N_WEBHOOK_SECRET
 ```
 
-3. Deploy. Cron anropar `/api/cron/run-alarms` varje minut (kräver Vercel Pro för minut-precision).
+3. Deploy.
+4. Lägg även i **GitHub Secrets**: `APP_BASE_URL`, `CRON_SECRET` (samma som Vercel).
+   Om Vercel Deployment Protection är på: lägg `VERCEL_BYPASS_TOKEN`.
+5. Workflowen **Run Alarms** anropar `/api/cron/run-alarms` varje minut från GitHub
+   (Hobby på Vercel klarar bara en cron per dygn).
 
 ## n8n
 
