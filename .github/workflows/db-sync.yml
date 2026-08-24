@@ -3,6 +3,11 @@ name: Database Sync
 on:
   workflow_dispatch:
     inputs:
+      force_reset:
+        description: "Radera all data och bygg om schemat (krävs vid Device→Room-migrering)"
+        required: true
+        default: true
+        type: boolean
       run_seed:
         description: "Kör seed efter db push"
         required: true
@@ -30,8 +35,13 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
+      - name: Reset and push Prisma schema
+        if: ${{ inputs.force_reset }}
+        run: npx prisma db push --force-reset --accept-data-loss
+
       - name: Push Prisma schema
-        run: npm run db:push -- --accept-data-loss
+        if: ${{ !inputs.force_reset }}
+        run: npx prisma db push --accept-data-loss
 
       - name: Seed database
         if: ${{ inputs.run_seed }}
