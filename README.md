@@ -16,19 +16,18 @@ Varje inloggning öppnar **det rummet** som tillhör användaren: TV, musik, lju
 1. Skapa ett **nytt** Neon-projekt (inte samma databas som XtraCash).
 2. Kopiera `.env.example` till `.env`.
 3. Klistra in **Direct connection**-strängen från Neon i `DATABASE_URL` (utan `-pooler`, med `sslmode=require` och `connect_timeout=15`).
-4. Kör:
-
-```bash
-npm install
-npx prisma generate
-npx prisma db push
-npx prisma db seed
-npm run dev
-```
+4. Om `npx prisma db push` från din PC ger P1001 (port 5432 blockeras ofta hemma):
+   pusha koden till GitHub och kör workflowen **Database Sync** i stället. Den gör `db push` + seed från GitHubs servrar, precis som XtraCash.
 
 Standardlösenord efter seed: `xtrahome123`
 
 Användare: Anders, Sandra, Alexander, William, Oliver, Benjamin.
+
+## Databas via GitHub (rekommenderat)
+
+1. Lägg `DATABASE_URL` som GitHub Secret (Direct connection från Neon).
+2. Actions → **Database Sync** → Run workflow.
+3. Kryssa i **Kör seed efter db push** första gången.
 
 ## Vercel
 
