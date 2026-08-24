@@ -1,6 +1,5 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { sendToN8n } from "@/lib/n8n";
 import type { AlarmStepType, Weekday } from "@prisma/client";
 
 type AlarmWithRelations = Awaited<ReturnType<typeof getActiveAlarms>>[number];
@@ -8,10 +7,9 @@ type AlarmWithRelations = Awaited<ReturnType<typeof getActiveAlarms>>[number];
 const dateFormatterCache = new Map<string, Intl.DateTimeFormat>();
 const timeFormatterCache = new Map<string, Intl.DateTimeFormat>();
 
-export async function triggerDueAlarmSchedules() {
+export async function claimDueAlarms() {
   const alarms = await getActiveAlarms();
-  let triggered = 0;
-  let failed = 0;
+  const due = [];
 
   for (const alarm of alarms) {
     const slot = getAlarmSlot(alarm.timezone, new Date());
@@ -41,45 +39,51 @@ export async function triggerDueAlarmSchedules() {
         });
 
     const payload = buildAlarmPayload(alarm, slot, execution.id);
-    const result = await sendToN8n("alarm.triggered", payload);
-
-    if (result.ok) {
-      triggered += 1;
-      await prisma.$transaction([
-        prisma.alarmExecution.update({
-          where: { id: execution.id },
-          data: {
-            status: "SENT",
-            requestBody: payload as Prisma.InputJsonValue,
-            responseBody: result.payload as Prisma.InputJsonValue,
-            completedAt: new Date(),
-          },
-        }),
-        prisma.alarmSchedule.update({
-          where: { id: alarm.id },
-          data: { lastTriggeredSlot: `${slot.date} ${slot.time}` },
-        }),
-      ]);
-      continue;
-    }
-
-    failed += 1;
     await prisma.alarmExecution.update({
       where: { id: execution.id },
-      data: {
-        status: "FAILED",
-        requestBody: payload as Prisma.InputJsonValue,
-        responseBody: result.payload as Prisma.InputJsonValue,
-        errorMessage:
-          typeof result.payload["error"] === "string"
-            ? result.payload["error"]
-            : `n8n svarade med status ${result.status}`,
-        completedAt: new Date(),
-      },
+      data: { requestBody: payload as Prisma.InputJsonValue },
+    });
+    due.push(payload);
+  }
+
+  return due;
+}
+
+export async function completeAlarmExecution(input: {
+  executionId: string;
+  status: "SENT" | "FAILED";
+  errorMessage?: string | null;
+  responseBody?: Record<string, unknown>;
+}) {
+  const execution = await prisma.alarmExecution.findUnique({
+    where: { id: input.executionId },
+    include: { alarm: true },
+  });
+  if (!execution) return null;
+
+  await prisma.alarmExecution.update({
+    where: { id: execution.id },
+    data: {
+      status: input.status,
+      errorMessage: input.errorMessage ?? null,
+      responseBody: (input.responseBody ?? undefined) as Prisma.InputJsonValue | undefined,
+      completedAt: new Date(),
+    },
+  });
+
+  if (input.status === "SENT") {
+    const prefix = `${execution.alarmId}:`;
+    const rest = execution.executionKey.startsWith(prefix)
+      ? execution.executionKey.slice(prefix.length)
+      : "";
+    const lastTriggeredSlot = rest.replace(/^(\d{4}-\d{2}-\d{2}):/, "$1 ");
+    await prisma.alarmSchedule.update({
+      where: { id: execution.alarmId },
+      data: { lastTriggeredSlot: lastTriggeredSlot || null },
     });
   }
 
-  return { triggered, failed };
+  return { ok: true };
 }
 
 async function getActiveAlarms() {

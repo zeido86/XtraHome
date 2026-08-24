@@ -2,14 +2,14 @@
 
 Personlig hem-dashboard för varje familjemedlem. Separat från XtraCash.
 
-Varje inloggning öppnar **det rummet** som tillhör användaren: TV, musik, ljus och veckolarm. Kommandon går till `n8n`, som styr Home Assistant och Telegram.
+Varje inloggning öppnar **det rummet** som tillhör användaren: TV, musik, ljus och veckolarm. Live-knappar går till `n8n`. Veckolarm sparas i Neon och **n8n läser databasen varje minut**.
 
 ## Stack
 
 - Next.js (App Router)
 - NextAuth
 - Prisma + PostgreSQL (egen Neon-databas, inte XtraCash)
-- GitHub Actions för minut-cron (Hobby på Vercel tillåter bara daglig cron)
+- n8n läser förfallna larm från databasen varje minut
 
 ## Kom igång
 
@@ -44,17 +44,24 @@ N8N_HOME_WEBHOOK_URL
 N8N_WEBHOOK_SECRET
 ```
 
-3. Deploy.
-4. Lägg även i **GitHub Secrets**: `APP_BASE_URL`, `CRON_SECRET` (samma som Vercel).
-   Om Vercel Deployment Protection är på: lägg `VERCEL_BYPASS_TOKEN`.
-5. Workflowen **Run Alarms** anropar `/api/cron/run-alarms` varje minut från GitHub
-   (Hobby på Vercel klarar bara en cron per dygn).
+3. Deploy. Ingen minut-cron behövs på Vercel.
 
 ## n8n
 
-Webhooken tar emot två event:
-
-- `home.command` när någon trycker TV/musik/ljus
-- `alarm.triggered` när ett veckolarm går
-
+### Live-knappar
+`home.command` skickas när någon trycker TV/musik/ljus.
 Verifiera header `x-xtrahome-signature` med HMAC-SHA256 av hela body och `N8N_WEBHOOK_SECRET`.
+
+### Veckolarm (polla databasen)
+n8n Schedule **varje minut**:
+
+1. HTTP GET `https://DIN-APP/api/alarms/due`  
+   Header: `Authorization: Bearer N8N_WEBHOOK_SECRET`  
+   (samma secret som i Vercel)
+2. Om `alarms` är tomt: stoppa.
+3. För varje larm: kör `routineSteps` mot Home Assistant / Telegram.
+4. HTTP POST `https://DIN-APP/api/alarms/due`  
+   Body: `{ "executionId": "...", "status": "SENT" }`  
+   eller `"FAILED"` plus `errorMessage` om något gick fel.
+
+GET läser Neon och lämnar bara larm vars tid är **den här minuten** och som inte redan körts.
