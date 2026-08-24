@@ -36,13 +36,15 @@ Användare: Anders, Sandra, Alexander, William, Oliver, Benjamin.
 
 ```
 DATABASE_URL
-NEXTAUTH_URL
+NEXTAUTH_URL          ← måste vara din riktiga Vercel-URL, t.ex. https://xtrahome.vercel.app
 NEXTAUTH_SECRET
 CRON_SECRET
 APP_BASE_URL
 N8N_HOME_WEBHOOK_URL
 N8N_WEBHOOK_SECRET
 ```
+
+`NEXTAUTH_URL` och `APP_BASE_URL` ska vara samma produktions-URL. Utan `NEXTAUTH_URL` kan builden falla.
 
 3. Deploy. Ingen minut-cron behövs på Vercel.
 
