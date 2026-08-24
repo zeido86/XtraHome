@@ -82,14 +82,22 @@ export function HomeDashboard({
   const [alarms, setAlarms] = useState<Alarm[]>([]);
   const [n8nConfigured, setN8nConfigured] = useState(false);
   const [status, setStatus] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [form, setForm] = useState(DEFAULT_ALARM);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setLoadError("");
     const res = await fetch("/api/home");
-    if (!res.ok) return;
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setLoadError(
+        data.error ??
+          "Kunde inte läsa hemdata. Kör Database Sync + seed i GitHub om databasen saknar nya tabeller.",
+      );
+      return;
+    }
     setRooms(data.rooms ?? []);
     setDevices(data.devices ?? []);
     setAlarms(data.alarms ?? []);
@@ -169,7 +177,7 @@ export function HomeDashboard({
 
   return (
     <main>
-      <section className="relative min-h-screen overflow-hidden">
+      <section className="relative min-h-[70vh] overflow-hidden md:min-h-screen">
         <motion.div
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: "url('/room.jpg')" }}
@@ -179,11 +187,16 @@ export function HomeDashboard({
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#16312c] via-[#16312c]/35 to-transparent" />
 
-        <div className="relative flex min-h-screen flex-col justify-between px-6 py-8 md:px-12">
+        <div className="relative flex min-h-[70vh] flex-col justify-between px-6 py-8 md:min-h-screen md:px-12">
           <header className="flex items-start justify-between gap-4">
-            <p className="brand text-4xl font-extrabold tracking-tight text-white md:text-6xl">
-              XtraHome
-            </p>
+            <div>
+              <p className="brand text-4xl font-extrabold tracking-tight text-white md:text-6xl">
+                XtraHome
+              </p>
+              <p className="mt-1 text-sm text-white/70">
+                Inloggad som {userName} ({role === "ADMIN" ? "admin" : "användare"})
+              </p>
+            </div>
             <LogoutButton />
           </header>
 
@@ -199,6 +212,14 @@ export function HomeDashboard({
                 ? `Dina rum: ${rooms.map((room) => room.name).join(", ")}.`
                 : "Du är inte knuten till något rum ännu."}
             </p>
+            {role === "ADMIN" ? (
+              <a
+                href="#admin-rum"
+                className="mt-6 inline-block bg-[#b08a3a] px-5 py-3 font-semibold text-[#16312c]"
+              >
+                Hantera rum
+              </a>
+            ) : null}
             <div className="mt-8 flex flex-wrap gap-3">
               {heroDevices.map((device, index) => (
                 <motion.button
@@ -227,9 +248,18 @@ export function HomeDashboard({
               {n8nConfigured ? "Kopplad mot n8n och Home Assistant." : "n8n är inte konfigurerad än."}
               {status ? ` ${status}` : ""}
             </p>
+            {loadError ? (
+              <p className="mt-3 max-w-xl bg-black/40 p-3 text-sm text-amber-100">{loadError}</p>
+            ) : null}
           </motion.div>
         </div>
       </section>
+
+      {role === "ADMIN" ? (
+        <div id="admin-rum">
+          <AdminRoomsPanel />
+        </div>
+      ) : null}
 
       {rooms.map((room) => (
         <section key={room.id} className="bg-[#eef4f6] px-6 py-12 md:px-12">
@@ -476,8 +506,6 @@ export function HomeDashboard({
           </div>
         </div>
       </section>
-
-      {role === "ADMIN" ? <AdminRoomsPanel /> : null}
     </main>
   );
 }

@@ -74,13 +74,21 @@ export function AdminRoomsPanel() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [status, setStatus] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const editingIdRef = useRef<string | undefined>(undefined);
 
   const load = useCallback(async () => {
+    setLoadError("");
     const res = await fetch("/api/admin/rooms");
-    if (!res.ok) return;
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setLoadError(
+        data.error ??
+          "Kunde inte ladda rum. Kör GitHub Actions → Database Sync med seed.",
+      );
+      return;
+    }
     const nextRooms = (data.rooms ?? []) as RoomListItem[];
     setRooms(nextRooms);
     setUsers(data.users ?? []);
@@ -207,6 +215,10 @@ export function AdminRoomsPanel() {
           Nytt rum
         </button>
       </div>
+
+      {loadError ? (
+        <p className="mt-4 bg-[#16312c] p-3 text-sm text-amber-100">{loadError}</p>
+      ) : null}
 
       <div className="mt-8 space-y-4">
         {rooms.length === 0 ? (
