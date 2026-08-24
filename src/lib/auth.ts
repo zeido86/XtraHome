@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { type NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { ensureNextAuthUrl } from "@/lib/auth-url";
+import { ensureNextAuthUrl, resolveAuthUrl } from "@/lib/auth-url";
 import { prisma } from "@/lib/prisma";
 
 ensureNextAuthUrl();
@@ -81,23 +81,26 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
     async redirect({ url, baseUrl }) {
+      // next-auth/react always does `new URL(data.url)` — must be absolute.
+      const origin = safeOrigin(baseUrl);
       if (url.startsWith("/") && !url.startsWith("//")) {
-        try {
-          const origin = new URL(baseUrl).origin;
-          if (origin.includes(".")) return `${origin}${url}`;
-        } catch {
-          // Ignore invalid NEXTAUTH_URL and keep a same-origin path.
-        }
-        return url;
+        return `${origin}${url}`;
       }
       try {
         const dest = new URL(url);
-        const base = new URL(baseUrl);
-        if (dest.origin === base.origin) return dest.toString();
+        if (dest.origin === origin) return dest.toString();
       } catch {
-        // Fall through.
+        // Fall through to home.
       }
-      return url.startsWith("/") ? url : "/";
+      return `${origin}/`;
     },
   },
 };
+
+function safeOrigin(baseUrl: string) {
+  try {
+    return new URL(baseUrl).origin;
+  } catch {
+    return resolveAuthUrl();
+  }
+}

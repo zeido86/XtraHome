@@ -13,14 +13,19 @@ export function LoginForm() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
-    const result = await signIn("credentials", {
-      identifier,
-      password,
-      redirect: false,
-    });
-    if (result?.error) {
-      setError("Fel namn eller lösenord");
-      return;
+    try {
+      const result = await signIn("credentials", {
+        identifier,
+        password,
+        redirect: false,
+        callbackUrl: "/",
+      });
+      if (result?.error) {
+        setError("Fel namn eller lösenord");
+        return;
+      }
+    } catch {
+      // Session may still be set even if next-auth returns a bad redirect URL.
     }
     router.push("/");
     router.refresh();
